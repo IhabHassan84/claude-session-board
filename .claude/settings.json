@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/skills/planning-board/scripts/board.py create --auto --start-server --from-hook-stdin"
+          }
+        ]
+      }
+    ]
+  }
+}

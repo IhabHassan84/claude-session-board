@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Planning Board</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #181b22; --col: #1e222b; --card: #262b36;
+    --text: #e6e8ec; --muted: #8b93a1; --accent: #5b8cff; --border: #2c313c;
+    --done: #3ddc84; --prog: #ffb454; --back: #6b7280;
+  }
+  body.light {
+    --bg: #f4f5f7; --panel: #ffffff; --col: #ebecf0; --card: #ffffff;
+    --text: #1b1f29; --muted: #5e6675; --accent: #2f6bff; --border: #dfe1e6;
+    --done: #1f9d57; --prog: #c77700; --back: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; padding: 14px 20px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 12px; }
+  select, button {
+    background: var(--col); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer;
+  }
+  .spacer { flex: 1; }
+  .status { font-size: 12px; color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         background: var(--done); margin-right: 5px; vertical-align: middle; }
+  .dot.off { background: var(--back); }
+  .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 20px; }
+  .column { background: var(--col); border-radius: 10px; padding: 12px; min-height: 200px; }
+  .column h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
+    margin: 4px 4px 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .column h2 .count {
+    background: var(--panel); color: var(--muted); border-radius: 10px;
+    padding: 1px 8px; font-size: 11px; font-weight: 600;
+  }
+  .col-backlog h2 .bar, .col-in-progress h2 .bar, .col-done h2 .bar {
+    width: 8px; height: 8px; border-radius: 2px;
+  }
+  .col-backlog .bar { background: var(--back); }
+  .col-in-progress .bar { background: var(--prog); }
+  .col-done .bar { background: var(--done); }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.15);
+  }
+  .card .title { font-weight: 600; margin-bottom: 4px; }
+  .card .desc { color: var(--muted); font-size: 12.5px; white-space: pre-wrap; }
+  .card .meta { margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .tag { font-size: 11px; color: var(--muted); }
+  .due { font-size: 11px; padding: 1px 7px; border-radius: 10px;
+         background: rgba(255,180,84,.15); color: var(--prog); }
+  .empty { color: var(--muted); font-size: 12px; padding: 8px 4px; font-style: italic; }
+  .col-done .card .title { text-decoration: line-through; opacity: .75; }
+</style>
+</head>
+<body class="">
+<header>
+  <h1 id="board-title">Planning Board</h1>
+  <span class="sub" id="board-sub"></span>
+  <div class="spacer"></div>
+  <label class="status">Board:&nbsp;</label>
+  <select id="picker"></select>
+  <button id="theme">Theme</button>
+  <span class="status"><span class="dot" id="live-dot"></span><span id="live-text">live</span></span>
+</header>
+<div class="board" id="board"></div>
+
+<script>
+const COLS = [
+  { key: "backlog", label: "Backlog" },
+  { key: "in-progress", label: "In Progress" },
+  { key: "done", label: "Done" },
+];
+let currentBoard = new URLSearchParams(location.search).get("board") || null;
+
+function esc(s) {
+  return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
+}
+
+async function loadIndex() {
+  try {
+    const r = await fetch("/boards/index.json", { cache: "no-store" });
+    const idx = await r.json();
+    const picker = document.getElementById("picker");
+    picker.innerHTML = "";
+    (idx.boards || []).slice().reverse().forEach(b => {
+      const o = document.createElement("option");
+      o.value = b.id; o.textContent = b.title + "  (" + b.id + ")";
+      picker.appendChild(o);
+    });
+    if (!currentBoard) currentBoard = idx.active || (idx.boards[0] && idx.boards[0].id);
+    if (currentBoard) picker.value = currentBoard;
+    return idx;
+  } catch (e) { return { boards: [] }; }
+}
+
+async function loadBoard() {
+  if (!currentBoard) { document.getElementById("board").innerHTML =
+    '<div class="empty">No boards yet. Start a Claude Code session to create one.</div>'; return; }
+  let board;
+  try {
+    const r = await fetch("/boards/" + currentBoard + ".json", { cache: "no-store" });
+    board = await r.json();
+  } catch (e) { return; }
+
+  document.body.className = (board.prefs && board.prefs.theme === "light") ? "light" : "";
+  document.getElementById("board-title").textContent = board.title || "Planning Board";
+  document.getElementById("board-sub").textContent = board.id;
+
+  const showDue = !board.prefs || board.prefs.show_due_dates !== false;
+  const root = document.getElementById("board");
+  root.innerHTML = "";
+  COLS.forEach(col => {
+    const cards = (board.cards || []).filter(c => c.column === col.key)
+                    .sort((a,b) => (a.order||0) - (b.order||0));
+    const el = document.createElement("div");
+    el.className = "column col-" + col.key;
+    el.innerHTML = '<h2><span class="bar"></span>' + col.label +
+                   '<span class="count">' + cards.length + '</span></h2>';
+    if (!cards.length) {
+      el.innerHTML += '<div class="empty">empty</div>';
+    } else {
+      cards.forEach(c => {
+        const due = (showDue && c.due_date) ? '<span class="due">due ' + esc(c.due_date) + '</span>' : '';
+        el.innerHTML +=
+          '<div class="card"><div class="title">' + esc(c.title) + '</div>' +
+          (c.description ? '<div class="desc">' + esc(c.description) + '</div>' : '') +
+          '<div class="meta"><span class="tag">' + esc(c.id) + '</span>' + due + '</div></div>';
+      });
+    }
+    root.appendChild(el);
+  });
+}
+
+async function refresh() { await loadIndex(); await loadBoard(); }
+
+document.getElementById("picker").addEventListener("change", e => {
+  currentBoard = e.target.value;
+  history.replaceState(null, "", "?board=" + currentBoard);
+  loadBoard();
+});
+document.getElementById("theme").addEventListener("click", () => {
+  document.body.className = document.body.className === "light" ? "" : "light";
+});
+
+function connectSSE() {
+  try {
+    const es = new EventSource("/events");
+    const dot = document.getElementById("live-dot");
+    const txt = document.getElementById("live-text");
+    es.onmessage = () => refresh();
+    es.onopen = () => { dot.classList.remove("off"); txt.textContent = "live"; };
+    es.onerror = () => { dot.classList.add("off"); txt.textContent = "reconnecting"; };
+  } catch (e) {
+    setInterval(refresh, 3000); // fallback poll
+  }
+}
+
+refresh();
+connectSSE();
+</script>
+</body>
+</html>

@@ -1,0 +1,3 @@
+.claude/boards/
+__pycache__/
+*.pyc
