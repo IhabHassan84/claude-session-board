@@ -112,4 +112,46 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         self.wfile.write(b"data: changed\n\n")
                     else:
                         self.wfile.write(b": ping\n\n")
-                    self.wfile.flu
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            return
+
+        self._send(404, b"not found", "text/plain")
+
+
+class ThreadingServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+
+def bind_free_port():
+    for port in range(PORT_BASE, PORT_BASE + 100):
+        try:
+            return ThreadingServer(("127.0.0.1", port), Handler), port
+        except OSError:
+            continue
+    srv = ThreadingServer(("127.0.0.1", 0), Handler)  # OS-assigned fallback
+    return srv, srv.server_address[1]
+
+
+def main():
+    if already_serving():
+        return
+    os.makedirs(BOARDS_DIR, exist_ok=True)
+    srv, port = bind_free_port()
+    with open(RUNTIME_PATH, "w") as f:
+        json.dump({"port": port, "pid": os.getpid(), "boards_dir": BOARDS_DIR}, f)
+    print(f"planning-board server on http://127.0.0.1:{port} (boards: {BOARDS_DIR})")
+    try:
+        srv.serve_forever()
+    finally:
+        try:
+            os.remove(RUNTIME_PATH)
+        except OSError:
+            pass
+
+
+if __name__ == "__main__":
+    main()
+# end

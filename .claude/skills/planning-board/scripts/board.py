@@ -334,4 +334,41 @@ def main():
     c.add_argument("--title")
     c.add_argument("--session")
     c.add_argument("--auto", action="store_true")
-    c.add_ar
+    c.add_argument("--start-server", action="store_true")
+    c.add_argument("--from-hook-stdin", action="store_true")
+    c.set_defaults(func=cmd_create)
+
+    a = sub.add_parser("add-card")
+    a.add_argument("--board")
+    a.add_argument("--title", required=True)
+    a.add_argument("--desc")
+    a.add_argument("--due")
+    a.set_defaults(func=cmd_add_card)
+
+    m = sub.add_parser("move-card")
+    m.add_argument("--board")
+    m.add_argument("--id", required=True)
+    m.add_argument("--to", required=True)
+    m.set_defaults(func=cmd_move_card)
+
+    s = sub.add_parser("set-pref")
+    s.add_argument("--board")
+    s.add_argument("--key", required=True)
+    s.add_argument("--value", required=True)
+    s.set_defaults(func=cmd_set_pref)
+
+    l = sub.add_parser("list")
+    l.add_argument("--board")
+    l.set_defaults(func=cmd_list)
+
+    u = sub.add_parser("url")
+    u.add_argument("--board")
+    u.set_defaults(func=cmd_url)
+
+    args = p.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
+# end
