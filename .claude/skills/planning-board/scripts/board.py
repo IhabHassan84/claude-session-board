@@ -74,6 +74,40 @@ def ensure_dirs():
     os.makedirs(boards_dir(), exist_ok=True)
 
 
+GITIGNORE_BLOCK = (
+    "# planning-board (Claude Code task board) — local only, do not commit\n"
+    ".claude/boards/\n"
+    ".claude/skills/planning-board/\n"
+)
+GITIGNORE_MARK = "# planning-board (Claude Code task board)"
+
+
+def ensure_gitignore():
+    """Add the board's local artifacts to the project's .gitignore.
+
+    The board state and the skill itself are personal/local tooling and should
+    not be committed to the project's repo. Only acts inside a git repo (or when
+    a .gitignore already exists); idempotent.
+    """
+    root = project_root()
+    gi = os.path.join(root, ".gitignore")
+    is_git = os.path.isdir(os.path.join(root, ".git"))
+    if not is_git and not os.path.exists(gi):
+        return  # not a git project; don't litter
+    try:
+        existing = ""
+        if os.path.exists(gi):
+            with open(gi, "r", encoding="utf-8") as f:
+                existing = f.read()
+        if GITIGNORE_MARK in existing:
+            return
+        sep = "" if (not existing or existing.endswith("\n")) else "\n"
+        with open(gi, "a", encoding="utf-8") as f:
+            f.write(sep + "\n" + GITIGNORE_BLOCK)
+    except OSError:
+        pass
+
+
 def board_path(board_id):
     return os.path.join(boards_dir(), board_id + ".json")
 
@@ -127,6 +161,8 @@ def normalize(board):
         card.setdefault("epic", default_epic)
         card.setdefault("links", [])
         card.setdefault("images", [])
+        card.setdefault("created_at", card.get("updated_at") or now())
+        card.setdefault("updated_at", card.get("created_at") or now())
         # repair cards pointing at a now-missing epic
         if card["epic"] not in [e["id"] for e in board["epics"]]:
             card["epic"] = default_epic
@@ -265,6 +301,7 @@ def session_from_stdin():
 
 def cmd_create(args):
     ensure_dirs()
+    ensure_gitignore()
     if args.from_hook_stdin and not args.session:
         args.session = session_from_stdin()
 

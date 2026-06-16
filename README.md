@@ -116,8 +116,23 @@ epic are added on first write).
   .runtime.json       the live server's port + pid (auto-managed)
 ```
 
-Boards live inside the project, so they're versioned with your code if you choose to
-commit them. Committing is optional and never part of the update path.
+The board and the skill are personal, local tooling — not part of your product —
+so they should not be committed to the consuming project's repo. On session start
+the board automatically adds this block to the project's `.gitignore` (only inside
+a git repo, and only once):
+
+```
+# planning-board (Claude Code task board) — local only, do not commit
+.claude/boards/
+.claude/skills/planning-board/
+```
+
+If you'd rather version the skill itself (but never the board state), remove the
+second line and keep `.claude/boards/` ignored.
+
+Cards carry `created_at` and `updated_at`; the viewer sorts each column by **most
+recently updated first**, and shows the update time on every card (full timestamps
+in the card detail view).
 
 ## Layout of this repo
 
