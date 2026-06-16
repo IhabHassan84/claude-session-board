@@ -80,27 +80,39 @@ session starts.
 
 ## Using it
 
-Once a session is running, just work normally — Claude will add cards and move them.
-You can also drive it yourself from the project root:
+Work is organized as **board → epics → cards**. Every card lives in an epic and
+flows across four columns: **Backlog → In Progress → Blocked → Done**. In the
+viewer each epic is a collapsible panel with its own columns, and clicking a card
+opens a detail view with its description, linked documents, and screenshots.
+
+Once a session is running, just work normally — Claude creates epics, adds cards,
+and moves them. You can also drive it yourself from the project root:
 
 ```
+python .claude/skills/planning-board/scripts/board.py add-epic  --title "Checkout"
+python .claude/skills/planning-board/scripts/board.py add-card  --epic epic-002 --title "Do the thing" --desc "details" --due 2026-07-01
+python .claude/skills/planning-board/scripts/board.py move-card --id card-003 --to in-progress
+python .claude/skills/planning-board/scripts/board.py move-card --id card-003 --to blocked
+python .claude/skills/planning-board/scripts/board.py move-card --id card-003 --to done
+python .claude/skills/planning-board/scripts/board.py add-link  --id card-003 --label "Spec" --url "docs/spec.md"
+python .claude/skills/planning-board/scripts/board.py add-image --id card-003 --path ./shot.png --label "UI"
 python .claude/skills/planning-board/scripts/board.py list
 python .claude/skills/planning-board/scripts/board.py url            # print the viewer URL
-python .claude/skills/planning-board/scripts/board.py add-card  --title "Do the thing" --desc "details" --due 2026-07-01
-python .claude/skills/planning-board/scripts/board.py move-card --id card-003 --to in-progress
-python .claude/skills/planning-board/scripts/board.py move-card --id card-003 --to done
 python .claude/skills/planning-board/scripts/board.py set-pref  --key theme --value light
 ```
 
 Open the printed URL (e.g. `http://127.0.0.1:7842`) in your browser. The board
-refreshes the instant Claude or you change anything — no reload needed.
+refreshes the instant Claude or you change anything — no reload needed. Boards
+created by older versions are upgraded automatically (blocked column + a default
+epic are added on first write).
 
 ## How state is stored
 
 ```
 <project>/.claude/boards/
   index.json          registry of boards + the active board
-  <board-id>.json     one file per session board (cards, columns, prefs)
+  <board-id>.json     one file per session board (epics, cards, columns, prefs)
+  attachments/        screenshots attached to cards (served by the viewer)
   .runtime.json       the live server's port + pid (auto-managed)
 ```
 
@@ -130,4 +142,6 @@ README.md                               this file
   is dropped when the hook is defined inside a *plugin's* `hooks.json`, so don't ship
   this as a plugin hook.
 - No card editing from the browser (read-only view). Edit via the CLI.
+- Cards are clickable in the viewer to see description, referenced documents, and
+  screenshots; epics are collapsible panels.
 - No automatic cleanup of old boards yet.

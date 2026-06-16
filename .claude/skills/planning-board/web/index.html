@@ -6,170 +6,350 @@
 <title>Planning Board</title>
 <style>
   :root {
-    --bg: #0f1115; --panel: #181b22; --col: #1e222b; --card: #262b36;
-    --text: #e6e8ec; --muted: #8b93a1; --accent: #5b8cff; --border: #2c313c;
-    --done: #3ddc84; --prog: #ffb454; --back: #6b7280;
+    /* VS Code Dark+ inspired, with vivid column accents */
+    --bg: #1e1e1e;
+    --titlebar: #323233;
+    --panel: #252526;
+    --epic: #2a2d2e;
+    --col: #1e1e1e;
+    --col-head: #252526;
+    --card: #2d2d30;
+    --card-hover: #37373d;
+    --border: #3c3c3c;
+    --border-soft: #333336;
+    --text: #d4d4d4;
+    --muted: #9aa0a6;
+    --accent: #007acc;
+    --accent-bright: #4fc1ff;
+    /* column accent colors (vivid) */
+    --c-backlog: #c586c0;   /* purple  */
+    --c-progress: #4fc1ff;  /* blue    */
+    --c-blocked: #f14c4c;   /* red     */
+    --c-done: #4ec9b0;      /* teal    */
+    /* epic stripe palette (cycled) */
+    --e0: #569cd6; --e1: #c586c0; --e2: #4ec9b0; --e3: #dcdcaa; --e4: #ce9178; --e5: #9cdcfe;
   }
   body.light {
-    --bg: #f4f5f7; --panel: #ffffff; --col: #ebecf0; --card: #ffffff;
-    --text: #1b1f29; --muted: #5e6675; --accent: #2f6bff; --border: #dfe1e6;
-    --done: #1f9d57; --prog: #c77700; --back: #6b7280;
+    --bg: #f3f3f3; --titlebar: #dddddd; --panel: #ffffff; --epic: #f0f0f0;
+    --col: #f3f3f3; --col-head: #ececec; --card: #ffffff; --card-hover: #eef4fb;
+    --border: #d0d0d0; --border-soft: #e0e0e0; --text: #1f2328; --muted: #57606a;
+    --accent: #0066b8; --accent-bright: #0066b8;
+    --c-backlog: #9c4fa0; --c-progress: #0a84ff; --c-blocked: #d11a1a; --c-done: #138a72;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   header {
-    display: flex; align-items: center; gap: 14px; padding: 14px 20px;
-    background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+    display: flex; align-items: center; gap: 12px; padding: 10px 18px;
+    background: var(--titlebar); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 20;
   }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header .sub { color: var(--muted); font-size: 12px; }
-  select, button {
-    background: var(--col); color: var(--text); border: 1px solid var(--border);
-    border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer;
-  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; }
+  header .sub { color: var(--muted); font-size: 11px; }
   .spacer { flex: 1; }
-  .status { font-size: 12px; color: var(--muted); }
+  select, button {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 5px; padding: 5px 10px; font-size: 12px; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent); }
+  .status { font-size: 11px; color: var(--muted); }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-         background: var(--done); margin-right: 5px; vertical-align: middle; }
-  .dot.off { background: var(--back); }
-  .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding: 20px; }
-  .column { background: var(--col); border-radius: 10px; padding: 12px; min-height: 200px; }
-  .column h2 {
-    font-size: 13px; text-transform: uppercase; letter-spacing: .04em;
-    margin: 4px 4px 12px; display: flex; align-items: center; gap: 8px;
+         background: var(--c-done); margin-right: 5px; vertical-align: middle;
+         box-shadow: 0 0 6px var(--c-done); }
+  .dot.off { background: var(--muted); box-shadow: none; }
+
+  .wrap { padding: 16px 18px 60px; }
+
+  /* epic panel */
+  .epic {
+    background: var(--epic); border: 1px solid var(--border-soft);
+    border-left: 4px solid var(--e0); border-radius: 9px; margin-bottom: 16px;
+    overflow: hidden;
   }
-  .column h2 .count {
-    background: var(--panel); color: var(--muted); border-radius: 10px;
-    padding: 1px 8px; font-size: 11px; font-weight: 600;
+  .epic-head {
+    display: flex; align-items: center; gap: 10px; padding: 11px 14px;
+    cursor: pointer; user-select: none;
   }
-  .col-backlog h2 .bar, .col-in-progress h2 .bar, .col-done h2 .bar {
-    width: 8px; height: 8px; border-radius: 2px;
+  .epic-head:hover { background: rgba(255,255,255,.03); }
+  .chev { transition: transform .15s; color: var(--muted); font-size: 11px; width: 12px; }
+  .epic.collapsed .chev { transform: rotate(-90deg); }
+  .epic-title { font-weight: 600; font-size: 13.5px; }
+  .epic-mini { display: flex; gap: 6px; margin-left: auto; }
+  .pill {
+    font-size: 10.5px; font-weight: 600; padding: 1px 8px; border-radius: 10px;
+    background: var(--panel); color: var(--muted); border: 1px solid var(--border-soft);
   }
-  .col-backlog .bar { background: var(--back); }
-  .col-in-progress .bar { background: var(--prog); }
-  .col-done .bar { background: var(--done); }
+  .pill.b { color: var(--c-backlog); } .pill.p { color: var(--c-progress); }
+  .pill.x { color: var(--c-blocked); } .pill.d { color: var(--c-done); }
+
+  .epic-body { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+               padding: 0 12px 14px; }
+  .epic.collapsed .epic-body { display: none; }
+
+  .column { background: var(--col); border: 1px solid var(--border-soft);
+            border-radius: 7px; padding: 8px; min-height: 60px; }
+  .column h3 {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
+    margin: 2px 4px 9px; display: flex; align-items: center; gap: 7px; color: var(--muted);
+  }
+  .column h3 .bar { width: 9px; height: 9px; border-radius: 2px; }
+  .column h3 .count { margin-left: auto; font-size: 10px; }
+  .col-backlog h3 .bar { background: var(--c-backlog); }
+  .col-in-progress h3 .bar { background: var(--c-progress); }
+  .col-blocked h3 .bar { background: var(--c-blocked); }
+  .col-done h3 .bar { background: var(--c-done); }
+  .col-backlog h3 .bar, .col-in-progress h3 .bar, .col-blocked h3 .bar, .col-done h3 .bar {
+    box-shadow: 0 0 5px currentColor;
+  }
+
   .card {
-    background: var(--card); border: 1px solid var(--border); border-radius: 8px;
-    padding: 10px 12px; margin-bottom: 10px; box-shadow: 0 1px 2px rgba(0,0,0,.15);
+    background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+    padding: 9px 10px; margin-bottom: 8px; cursor: pointer;
+    border-left: 3px solid var(--border); transition: background .1s, border-color .1s;
   }
-  .card .title { font-weight: 600; margin-bottom: 4px; }
-  .card .desc { color: var(--muted); font-size: 12.5px; white-space: pre-wrap; }
-  .card .meta { margin-top: 8px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .tag { font-size: 11px; color: var(--muted); }
-  .due { font-size: 11px; padding: 1px 7px; border-radius: 10px;
-         background: rgba(255,180,84,.15); color: var(--prog); }
-  .empty { color: var(--muted); font-size: 12px; padding: 8px 4px; font-style: italic; }
-  .col-done .card .title { text-decoration: line-through; opacity: .75; }
+  .card:hover { background: var(--card-hover); border-left-color: var(--accent-bright); }
+  .col-backlog .card { border-left-color: var(--c-backlog); }
+  .col-in-progress .card { border-left-color: var(--c-progress); }
+  .col-blocked .card { border-left-color: var(--c-blocked); }
+  .col-done .card { border-left-color: var(--c-done); }
+  .card .title { font-weight: 600; font-size: 12.5px; margin-bottom: 3px; }
+  .card .desc {
+    color: var(--muted); font-size: 11.5px; display: -webkit-box;
+    -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .card .meta { margin-top: 7px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .tag { font-size: 10px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .due { font-size: 10px; padding: 1px 6px; border-radius: 9px;
+         background: rgba(220,220,170,.14); color: #dcdcaa; }
+  .ic { font-size: 10px; color: var(--muted); }
+  .col-done .card .title { text-decoration: line-through; opacity: .7; }
+  .empty { color: var(--muted); font-size: 11px; padding: 6px 4px; font-style: italic; opacity: .6; }
+
+  /* modal */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55); display: none;
+    align-items: center; justify-content: center; z-index: 50; padding: 24px;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    width: min(640px, 100%); max-height: 85vh; overflow: auto;
+    box-shadow: 0 12px 40px rgba(0,0,0,.5);
+  }
+  .modal-head { padding: 16px 18px 12px; border-bottom: 1px solid var(--border-soft);
+                display: flex; gap: 10px; align-items: flex-start; }
+  .modal-head h2 { margin: 0; font-size: 16px; flex: 1; }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 20px;
+                 cursor: pointer; line-height: 1; padding: 0 4px; }
+  .modal-body { padding: 14px 18px 20px; }
+  .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .badge { font-size: 11px; padding: 2px 9px; border-radius: 10px; border: 1px solid var(--border-soft); }
+  .section-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em;
+                   color: var(--muted); margin: 16px 0 6px; }
+  .modal-desc { white-space: pre-wrap; font-size: 13px; }
+  .links a { color: var(--accent-bright); text-decoration: none; display: block; padding: 3px 0; }
+  .links a:hover { text-decoration: underline; }
+  .links .path { color: var(--text); font-family: ui-monospace, monospace; font-size: 12px; padding: 3px 0; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .gallery figure { margin: 0; }
+  .gallery img { width: 100%; border-radius: 6px; border: 1px solid var(--border);
+                 cursor: zoom-in; display: block; }
+  .gallery figcaption { font-size: 10.5px; color: var(--muted); margin-top: 4px; }
+  .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none;
+              align-items: center; justify-content: center; z-index: 60; cursor: zoom-out; }
+  .lightbox.open { display: flex; }
+  .lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 6px; }
 </style>
 </head>
-<body class="">
+<body>
 <header>
   <h1 id="board-title">Planning Board</h1>
   <span class="sub" id="board-sub"></span>
   <div class="spacer"></div>
-  <label class="status">Board:&nbsp;</label>
+  <label class="status">Board:</label>
   <select id="picker"></select>
   <button id="theme">Theme</button>
   <span class="status"><span class="dot" id="live-dot"></span><span id="live-text">live</span></span>
 </header>
-<div class="board" id="board"></div>
+
+<div class="wrap" id="wrap"></div>
+
+<div class="overlay" id="overlay"><div class="modal" id="modal"></div></div>
+<div class="lightbox" id="lightbox"><img id="lightbox-img" alt=""></div>
 
 <script>
 const COLS = [
   { key: "backlog", label: "Backlog" },
   { key: "in-progress", label: "In Progress" },
+  { key: "blocked", label: "Blocked" },
   { key: "done", label: "Done" },
 ];
+const EPIC_COLORS = ["--e0","--e1","--e2","--e3","--e4","--e5"];
 let currentBoard = new URLSearchParams(location.search).get("board") || null;
+let boardData = null;
 
-function esc(s) {
-  return (s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));
-}
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]));}
+function lsKey(eid){return "pb-collapsed-"+currentBoard+"-"+eid;}
+function isCollapsed(eid){return localStorage.getItem(lsKey(eid))==="1";}
+function setCollapsed(eid,v){localStorage.setItem(lsKey(eid),v?"1":"0");}
 
-async function loadIndex() {
-  try {
-    const r = await fetch("/boards/index.json", { cache: "no-store" });
-    const idx = await r.json();
+async function loadIndex(){
+  try{
+    const idx = await (await fetch("/boards/index.json",{cache:"no-store"})).json();
     const picker = document.getElementById("picker");
     picker.innerHTML = "";
-    (idx.boards || []).slice().reverse().forEach(b => {
-      const o = document.createElement("option");
-      o.value = b.id; o.textContent = b.title + "  (" + b.id + ")";
-      picker.appendChild(o);
+    (idx.boards||[]).slice().reverse().forEach(b=>{
+      const o=document.createElement("option");
+      o.value=b.id; o.textContent=b.title+"  ("+b.id+")"; picker.appendChild(o);
     });
-    if (!currentBoard) currentBoard = idx.active || (idx.boards[0] && idx.boards[0].id);
-    if (currentBoard) picker.value = currentBoard;
+    if(!currentBoard) currentBoard = idx.active || (idx.boards[0]&&idx.boards[0].id);
+    if(currentBoard) picker.value = currentBoard;
     return idx;
-  } catch (e) { return { boards: [] }; }
+  }catch(e){return {boards:[]};}
 }
 
-async function loadBoard() {
-  if (!currentBoard) { document.getElementById("board").innerHTML =
-    '<div class="empty">No boards yet. Start a Claude Code session to create one.</div>'; return; }
+async function loadBoard(){
+  const wrap = document.getElementById("wrap");
+  if(!currentBoard){ wrap.innerHTML='<div class="empty">No boards yet. Start a Claude Code session to create one.</div>'; return; }
   let board;
-  try {
-    const r = await fetch("/boards/" + currentBoard + ".json", { cache: "no-store" });
-    board = await r.json();
-  } catch (e) { return; }
+  try{ board = await (await fetch("/boards/"+currentBoard+".json",{cache:"no-store"})).json(); }
+  catch(e){ return; }
+  boardData = board;
 
-  document.body.className = (board.prefs && board.prefs.theme === "light") ? "light" : "";
+  document.body.className = (board.prefs && board.prefs.theme==="light") ? "light" : "";
   document.getElementById("board-title").textContent = board.title || "Planning Board";
   document.getElementById("board-sub").textContent = board.id;
 
   const showDue = !board.prefs || board.prefs.show_due_dates !== false;
-  const root = document.getElementById("board");
-  root.innerHTML = "";
-  COLS.forEach(col => {
-    const cards = (board.cards || []).filter(c => c.column === col.key)
-                    .sort((a,b) => (a.order||0) - (b.order||0));
-    const el = document.createElement("div");
-    el.className = "column col-" + col.key;
-    el.innerHTML = '<h2><span class="bar"></span>' + col.label +
-                   '<span class="count">' + cards.length + '</span></h2>';
-    if (!cards.length) {
-      el.innerHTML += '<div class="empty">empty</div>';
-    } else {
-      cards.forEach(c => {
-        const due = (showDue && c.due_date) ? '<span class="due">due ' + esc(c.due_date) + '</span>' : '';
-        el.innerHTML +=
-          '<div class="card"><div class="title">' + esc(c.title) + '</div>' +
-          (c.description ? '<div class="desc">' + esc(c.description) + '</div>' : '') +
-          '<div class="meta"><span class="tag">' + esc(c.id) + '</span>' + due + '</div></div>';
+  const cols = COLS.filter(c => (board.columns||COLS.map(x=>x.key)).includes(c.key));
+  // derive epics; tolerate boards without an epics array
+  let epics = board.epics && board.epics.length ? board.epics.slice()
+            : [{id:"epic-001", title:"General"}];
+
+  wrap.innerHTML = "";
+  epics.forEach((ep, i) => {
+    const ecards = (board.cards||[]).filter(c => (c.epic||epics[0].id) === ep.id);
+    const collapsed = isCollapsed(ep.id);
+    const stripe = EPIC_COLORS[i % EPIC_COLORS.length];
+    const cnt = {};
+    cols.forEach(c => cnt[c.key] = ecards.filter(x=>x.column===c.key).length);
+
+    const panel = document.createElement("div");
+    panel.className = "epic" + (collapsed ? " collapsed" : "");
+    panel.style.borderLeftColor = "var("+stripe+")";
+    panel.innerHTML =
+      '<div class="epic-head">' +
+        '<span class="chev">▼</span>' +
+        '<span class="epic-title" style="color:var('+stripe+')">'+esc(ep.title)+'</span>' +
+        '<span class="status" style="margin-left:8px">'+ecards.length+' cards</span>' +
+        '<span class="epic-mini">' +
+          '<span class="pill b">'+cnt["backlog"]+'</span>' +
+          '<span class="pill p">'+cnt["in-progress"]+'</span>' +
+          '<span class="pill x">'+(cnt["blocked"]||0)+'</span>' +
+          '<span class="pill d">'+cnt["done"]+'</span>' +
+        '</span>' +
+      '</div>' +
+      '<div class="epic-body"></div>';
+
+    const head = panel.querySelector(".epic-head");
+    head.addEventListener("click", () => {
+      panel.classList.toggle("collapsed");
+      setCollapsed(ep.id, panel.classList.contains("collapsed"));
+    });
+
+    const body = panel.querySelector(".epic-body");
+    cols.forEach(col => {
+      const cards = ecards.filter(c=>c.column===col.key)
+                          .sort((a,b)=>(a.order||0)-(b.order||0));
+      const el = document.createElement("div");
+      el.className = "column col-"+col.key;
+      el.innerHTML = '<h3><span class="bar"></span>'+col.label+'<span class="count">'+cards.length+'</span></h3>';
+      if(!cards.length){ el.innerHTML += '<div class="empty">—</div>'; }
+      else cards.forEach(c => {
+        const due = (showDue && c.due_date) ? '<span class="due">'+esc(c.due_date)+'</span>' : '';
+        const nl = (c.links&&c.links.length) ? '<span class="ic">🔗 '+c.links.length+'</span>' : '';
+        const ni = (c.images&&c.images.length) ? '<span class="ic">🖼 '+c.images.length+'</span>' : '';
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML =
+          '<div class="title">'+esc(c.title)+'</div>' +
+          (c.description ? '<div class="desc">'+esc(c.description)+'</div>' : '') +
+          '<div class="meta"><span class="tag">'+esc(c.id)+'</span>'+due+nl+ni+'</div>';
+        card.addEventListener("click", () => openCard(c.id));
+        el.appendChild(card);
       });
-    }
-    root.appendChild(el);
+      body.appendChild(el);
+    });
+    wrap.appendChild(panel);
   });
 }
 
-async function refresh() { await loadIndex(); await loadBoard(); }
-
-document.getElementById("picker").addEventListener("change", e => {
-  currentBoard = e.target.value;
-  history.replaceState(null, "", "?board=" + currentBoard);
-  loadBoard();
-});
-document.getElementById("theme").addEventListener("click", () => {
-  document.body.className = document.body.className === "light" ? "" : "light";
-});
-
-function connectSSE() {
-  try {
-    const es = new EventSource("/events");
-    const dot = document.getElementById("live-dot");
-    const txt = document.getElementById("live-text");
-    es.onmessage = () => refresh();
-    es.onopen = () => { dot.classList.remove("off"); txt.textContent = "live"; };
-    es.onerror = () => { dot.classList.add("off"); txt.textContent = "reconnecting"; };
-  } catch (e) {
-    setInterval(refresh, 3000); // fallback poll
+function openCard(cardId){
+  const c = (boardData.cards||[]).find(x=>x.id===cardId);
+  if(!c) return;
+  const ep = (boardData.epics||[]).find(e=>e.id===c.epic);
+  const colLabel = (COLS.find(x=>x.key===c.column)||{}).label || c.column;
+  let html =
+    '<div class="modal-head"><h2>'+esc(c.title)+'</h2>' +
+    '<button class="modal-close" onclick="closeModal()">×</button></div>' +
+    '<div class="modal-body">' +
+      '<div class="badges">' +
+        '<span class="badge" style="color:var(--accent-bright)">'+esc(ep?ep.title:c.epic||"")+'</span>' +
+        '<span class="badge">'+esc(colLabel)+'</span>' +
+        (c.due_date ? '<span class="badge" style="color:#dcdcaa">due '+esc(c.due_date)+'</span>' : '') +
+        '<span class="badge"><span class="tag">'+esc(c.id)+'</span></span>' +
+      '</div>';
+  html += '<div class="section-label">Description</div>' +
+          '<div class="modal-desc">'+(c.description?esc(c.description):'<span class="empty">No description.</span>')+'</div>';
+  if(c.links&&c.links.length){
+    html += '<div class="section-label">Referenced documents</div><div class="links">';
+    c.links.forEach(l=>{
+      const u=l.url||"";
+      if(/^https?:\/\//i.test(u)) html += '<a href="'+esc(u)+'" target="_blank" rel="noopener">'+esc(l.label||u)+'</a>';
+      else html += '<div class="path">'+esc(l.label?l.label+": ":"")+esc(u)+'</div>';
+    });
+    html += '</div>';
   }
+  if(c.images&&c.images.length){
+    html += '<div class="section-label">Screenshots</div><div class="gallery">';
+    c.images.forEach(im=>{
+      const src="/attachments/"+encodeURIComponent(im.name);
+      html += '<figure><img src="'+src+'" alt="'+esc(im.label||"")+'" onclick="zoom(this.src)">'+
+              (im.label?'<figcaption>'+esc(im.label)+'</figcaption>':'')+'</figure>';
+    });
+    html += '</div>';
+  }
+  html += '</div>';
+  document.getElementById("modal").innerHTML = html;
+  document.getElementById("overlay").classList.add("open");
 }
+function closeModal(){ document.getElementById("overlay").classList.remove("open"); }
+function zoom(src){ document.getElementById("lightbox-img").src=src; document.getElementById("lightbox").classList.add("open"); }
 
-refresh();
-connectSSE();
+document.getElementById("overlay").addEventListener("click", e=>{ if(e.target.id==="overlay") closeModal(); });
+document.getElementById("lightbox").addEventListener("click", ()=> document.getElementById("lightbox").classList.remove("open"));
+document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ closeModal(); document.getElementById("lightbox").classList.remove("open"); }});
+
+document.getElementById("picker").addEventListener("change", e=>{
+  currentBoard=e.target.value; history.replaceState(null,"","?board="+currentBoard); loadBoard();
+});
+document.getElementById("theme").addEventListener("click", ()=>{
+  document.body.className = document.body.className==="light" ? "" : "light";
+});
+
+async function refresh(){ await loadIndex(); await loadBoard(); }
+function connectSSE(){
+  try{
+    const es=new EventSource("/events");
+    const dot=document.getElementById("live-dot"), txt=document.getElementById("live-text");
+    es.onmessage=()=>{ if(!document.getElementById("overlay").classList.contains("open")) refresh(); };
+    es.onopen=()=>{ dot.classList.remove("off"); txt.textContent="live"; };
+    es.onerror=()=>{ dot.classList.add("off"); txt.textContent="reconnecting"; };
+  }catch(e){ setInterval(refresh,3000); }
+}
+refresh(); connectSSE();
 </script>
 </body>
 </html>

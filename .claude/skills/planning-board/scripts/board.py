@@ -5,17 +5,27 @@ Single source of truth for board state. Claude drives the board through this
 script; it never hand-edits the JSON. Stdlib only.
 
 Board state lives in the CURRENT PROJECT at <cwd>/.claude/boards/, independent of
-where this script is cloned/installed. Each project therefore gets its own boards
-and its own local server on an automatically chosen free port, so multiple Claude
-Code sessions on one machine never collide.
+where this script is cloned/installed. Each project gets its own boards and its
+own local server on an automatically chosen free port, so multiple Claude Code
+sessions on one machine never collide.
+
+Model:
+  board -> epics -> cards. Every card belongs to an epic.
+  columns: backlog -> in-progress -> blocked -> done
+  cards may carry links (referenced docs/URLs) and images (screenshots).
 
 Subcommands:
-  create    --title T [--session S] [--auto] [--start-server] [--from-hook-stdin]
-  add-card  --board B --title T [--desc D] [--due YYYY-MM-DD]
-  move-card --board B --id CARD --to backlog|in-progress|done
-  set-pref  --board B --key K --value V
-  list      [--board B]
-  url       [--board B]
+  create     --title T [--session S] [--auto] [--start-server] [--from-hook-stdin]
+  add-epic   --title T [--board B]                         -> prints epic id
+  add-card   --title T [--epic E] [--desc D] [--due DATE] [--board B]
+  move-card  --id CARD --to backlog|in-progress|blocked|done [--board B]
+  set-epic   --id CARD --epic E [--board B]
+  add-link   --id CARD --label L --url U [--board B]
+  add-image  --id CARD --path FILE [--label L] [--board B]
+  set-pref   --key K --value V [--board B]
+  list       [--board B]
+  show       --id CARD [--board B]
+  url        [--board B]
 """
 import argparse
 import datetime as dt
@@ -23,18 +33,18 @@ import json
 import os
 import random
 import re
+import shutil
 import socket
 import string
 import sys
 
-COLUMNS = ["backlog", "in-progress", "done"]
+COLUMNS = ["backlog", "in-progress", "blocked", "done"]
 PORT_BASE = int(os.environ.get("PLANNING_BOARD_PORT", "7842"))
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 def project_root():
-    # Allow explicit override; otherwise the directory the session runs in.
     return os.environ.get("PLANNING_BOARD_PROJECT") or os.getcwd()
 
 
@@ -42,6 +52,10 @@ def boards_dir():
     return os.environ.get("PLANNING_BOARD_DIR") or os.path.join(
         project_root(), ".claude", "boards"
     )
+
+
+def attachments_dir():
+    return os.path.join(boards_dir(), "attachments")
 
 
 def index_path():
@@ -89,6 +103,34 @@ def gen_id():
 
 def slug_session(s):
     return re.sub(r"[^a-zA-Z0-9_-]", "-", s)[:40] if s else None
+
+
+# ---- schema upgrade --------------------------------------------------------
+
+def normalize(board):
+    """Upgrade older boards in place to the current schema."""
+    cols = board.get("columns") or ["backlog", "in-progress", "done"]
+    if "blocked" not in cols:
+        # insert blocked just before done (or append)
+        if "done" in cols:
+            cols.insert(cols.index("done"), "blocked")
+        else:
+            cols.append("blocked")
+    board["columns"] = cols
+
+    board.setdefault("epics", [])
+    if not board["epics"]:
+        board["epics"] = [{"id": "epic-001", "title": "General", "order": 0}]
+
+    default_epic = board["epics"][0]["id"]
+    for card in board.get("cards", []):
+        card.setdefault("epic", default_epic)
+        card.setdefault("links", [])
+        card.setdefault("images", [])
+        # repair cards pointing at a now-missing epic
+        if card["epic"] not in [e["id"] for e in board["epics"]]:
+            card["epic"] = default_epic
+    return board
 
 
 def counts(board):
@@ -142,7 +184,28 @@ def get_board(board_id):
     b = load_json(board_path(board_id), None)
     if b is None:
         sys.exit(f"Board not found: {board_id}")
-    return b
+    return normalize(b)
+
+
+def write_board(board):
+    board["updated_at"] = now()
+    save_json(board_path(board["id"]), board)
+    refresh_index(board)
+
+
+def find_card(board, card_id):
+    for c in board["cards"]:
+        if c["id"] == card_id:
+            return c
+    sys.exit(f"Card not found: {card_id}")
+
+
+def next_id(items, prefix):
+    n = len(items) + 1
+    existing = {i["id"] for i in items}
+    while f"{prefix}-{n:03d}" in existing:
+        n += 1
+    return f"{prefix}-{n:03d}"
 
 
 # ---- server / port helpers -------------------------------------------------
@@ -156,7 +219,6 @@ def port_alive(port):
 
 
 def running_port():
-    """Port of a live server already serving this project's boards, or None."""
     rt = load_json(runtime_path(), None)
     if rt and isinstance(rt.get("port"), int) and port_alive(rt["port"]):
         return rt["port"]
@@ -170,7 +232,7 @@ def viewer_url(board_id):
 
 def maybe_start_server():
     if running_port():
-        return  # already serving this project's boards
+        return
     import subprocess
     server = os.path.join(SCRIPT_DIR, "server.py")
     env = dict(os.environ)
@@ -178,7 +240,7 @@ def maybe_start_server():
     try:
         kwargs = {"env": env}
         if os.name == "nt":
-            kwargs["creationflags"] = 0x00000008 | 0x00000200  # DETACHED|NEW_GROUP
+            kwargs["creationflags"] = 0x00000008 | 0x00000200
         else:
             kwargs["start_new_session"] = True
         subprocess.Popen(
@@ -192,7 +254,6 @@ def maybe_start_server():
 # ---- commands --------------------------------------------------------------
 
 def session_from_stdin():
-    """SessionStart hooks receive JSON on stdin including session_id."""
     if sys.stdin is None or sys.stdin.isatty():
         return None
     try:
@@ -211,7 +272,8 @@ def cmd_create(args):
 
     existing = find_board_by_session(args.session) if args.session else None
     if existing:
-        board = existing
+        board = normalize(existing)
+        save_json(board_path(board["id"]), board)
         created = False
     else:
         bid = gen_id()
@@ -222,7 +284,8 @@ def cmd_create(args):
             "created_at": now(),
             "updated_at": now(),
             "columns": list(COLUMNS),
-            "prefs": {"theme": "dark", "show_due_dates": True},
+            "epics": [{"id": "epic-001", "title": "General", "order": 0}],
+            "prefs": {"theme": "vscode", "show_due_dates": True},
             "cards": [],
         }
         save_json(board_path(bid), board)
@@ -231,7 +294,6 @@ def cmd_create(args):
 
     if args.start_server:
         maybe_start_server()
-        # give the server a moment to bind and write its runtime file
         import time
         for _ in range(20):
             if running_port():
@@ -243,10 +305,12 @@ def cmd_create(args):
         msg = (
             f"Planning board ready for '{repo}': {board['title']} ({board['id']}). "
             f"View it at {url}. "
-            "RULES: break work into cards in 'backlog'; move a card to 'in-progress' "
-            "before starting it; move it to 'done' when finished and verified. "
-            "Always update the board via the planning-board board.py CLI "
-            "(never hand-edit the JSON)."
+            "WORKFLOW: group work under epics (add-epic), then add each task as a "
+            "card in an epic (add-card --epic). Move cards backlog -> in-progress "
+            "-> done as you go; use 'blocked' when a card is waiting on something. "
+            "Attach context with add-link (docs/URLs) and add-image (screenshots). "
+            "Always update the board via the planning-board board.py CLI; never "
+            "hand-edit the JSON."
         )
         print(json.dumps({
             "hookSpecificOutput": {
@@ -260,43 +324,90 @@ def cmd_create(args):
         print(f"URL:   {url}")
 
 
+def cmd_add_epic(args):
+    board = get_board(args.board)
+    eid = next_id(board["epics"], "epic")
+    board["epics"].append({
+        "id": eid, "title": args.title, "order": len(board["epics"]),
+    })
+    write_board(board)
+    print(f"Added epic {eid}: {args.title}")
+
+
 def cmd_add_card(args):
     board = get_board(args.board)
-    n = len(board["cards"]) + 1
+    epic = args.epic or board["epics"][0]["id"]
+    if epic not in [e["id"] for e in board["epics"]]:
+        sys.exit(f"Epic not found: {epic} (use add-epic first or omit --epic)")
+    cid = next_id(board["cards"], "card")
     card = {
-        "id": f"card-{n:03d}",
+        "id": cid,
         "title": args.title,
         "description": args.desc or "",
+        "epic": epic,
         "column": "backlog",
         "due_date": args.due,
+        "links": [],
+        "images": [],
         "created_at": now(),
         "updated_at": now(),
         "order": sum(1 for c in board["cards"] if c["column"] == "backlog"),
     }
     board["cards"].append(card)
-    board["updated_at"] = now()
-    save_json(board_path(board["id"]), board)
-    refresh_index(board)
-    print(f"Added {card['id']} to backlog: {card['title']}")
+    write_board(board)
+    print(f"Added {cid} to backlog [{epic}]: {card['title']}")
 
 
 def cmd_move_card(args):
     if args.to not in COLUMNS:
         sys.exit(f"--to must be one of {COLUMNS}")
     board = get_board(args.board)
-    for card in board["cards"]:
-        if card["id"] == args.id:
-            card["column"] = args.to
-            card["order"] = sum(
-                1 for c in board["cards"] if c["column"] == args.to and c["id"] != card["id"]
-            )
-            card["updated_at"] = now()
-            board["updated_at"] = now()
-            save_json(board_path(board["id"]), board)
-            refresh_index(board)
-            print(f"Moved {card['id']} -> {args.to}")
-            return
-    sys.exit(f"Card not found: {args.id}")
+    card = find_card(board, args.id)
+    card["column"] = args.to
+    card["updated_at"] = now()
+    write_board(board)
+    print(f"Moved {card['id']} -> {args.to}")
+
+
+def cmd_set_epic(args):
+    board = get_board(args.board)
+    if args.epic not in [e["id"] for e in board["epics"]]:
+        sys.exit(f"Epic not found: {args.epic}")
+    card = find_card(board, args.id)
+    card["epic"] = args.epic
+    card["updated_at"] = now()
+    write_board(board)
+    print(f"Moved {card['id']} to epic {args.epic}")
+
+
+def cmd_add_link(args):
+    board = get_board(args.board)
+    card = find_card(board, args.id)
+    card["links"].append({"label": args.label, "url": args.url})
+    card["updated_at"] = now()
+    write_board(board)
+    print(f"Added link to {card['id']}: {args.label} -> {args.url}")
+
+
+def cmd_add_image(args):
+    src = args.path
+    if not os.path.isfile(src):
+        sys.exit(f"File not found: {src}")
+    board = get_board(args.board)
+    card = find_card(board, args.id)
+    os.makedirs(attachments_dir(), exist_ok=True)
+    base = re.sub(r"[^a-zA-Z0-9._-]", "_", os.path.basename(src))
+    stored = f"{board['id']}_{card['id']}_{len(card['images'])+1}_{base}"
+    shutil.copy2(src, os.path.join(attachments_dir(), stored))
+    card["images"].append({
+        "name": stored,
+        "label": args.label or os.path.basename(src),
+        "src": os.path.abspath(src),
+        "added": now(),
+    })
+    card["updated_at"] = now()
+    write_board(board)
+    print(f"Attached image to {card['id']}: {stored}")
 
 
 def cmd_set_pref(args):
@@ -305,20 +416,48 @@ def cmd_set_pref(args):
     if val.lower() in ("true", "false"):
         val = val.lower() == "true"
     board["prefs"][args.key] = val
-    board["updated_at"] = now()
-    save_json(board_path(board["id"]), board)
+    write_board(board)
     print(f"Set pref {args.key} = {val!r}")
 
 
 def cmd_list(args):
     board = get_board(args.board)
     print(f"# {board['title']} ({board['id']})")
-    for col in board["columns"]:
-        cards = [c for c in board["cards"] if c["column"] == col]
-        print(f"\n## {col} ({len(cards)})")
-        for c in sorted(cards, key=lambda x: x.get("order", 0)):
-            due = f" [due {c['due_date']}]" if c.get("due_date") else ""
-            print(f"  - {c['id']}: {c['title']}{due}")
+    by_epic = {e["id"]: e for e in board["epics"]}
+    for e in board["epics"]:
+        ecards = [c for c in board["cards"] if c.get("epic") == e["id"]]
+        print(f"\n=== EPIC {e['id']}: {e['title']} ({len(ecards)} cards) ===")
+        for col in board["columns"]:
+            cards = [c for c in ecards if c["column"] == col]
+            if not cards:
+                continue
+            print(f"  [{col}]")
+            for c in cards:
+                due = f" (due {c['due_date']})" if c.get("due_date") else ""
+                extra = []
+                if c.get("links"):
+                    extra.append(f"{len(c['links'])} link(s)")
+                if c.get("images"):
+                    extra.append(f"{len(c['images'])} image(s)")
+                tail = f"  [{', '.join(extra)}]" if extra else ""
+                print(f"    - {c['id']}: {c['title']}{due}{tail}")
+
+
+def cmd_show(args):
+    board = get_board(args.board)
+    card = find_card(board, args.id)
+    epic = next((e for e in board["epics"] if e["id"] == card.get("epic")), None)
+    print(f"{card['id']}: {card['title']}")
+    print(f"  epic:   {epic['title'] if epic else card.get('epic')}")
+    print(f"  column: {card['column']}")
+    if card.get("due_date"):
+        print(f"  due:    {card['due_date']}")
+    if card.get("description"):
+        print(f"  description:\n    {card['description']}")
+    for ln in card.get("links", []):
+        print(f"  link:   {ln['label']} -> {ln['url']}")
+    for im in card.get("images", []):
+        print(f"  image:  {im['label']} ({im['name']})")
 
 
 def cmd_url(args):
@@ -331,35 +470,53 @@ def main():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     c = sub.add_parser("create")
-    c.add_argument("--title")
-    c.add_argument("--session")
+    c.add_argument("--title"); c.add_argument("--session")
     c.add_argument("--auto", action="store_true")
     c.add_argument("--start-server", action="store_true")
     c.add_argument("--from-hook-stdin", action="store_true")
     c.set_defaults(func=cmd_create)
 
+    e = sub.add_parser("add-epic")
+    e.add_argument("--board"); e.add_argument("--title", required=True)
+    e.set_defaults(func=cmd_add_epic)
+
     a = sub.add_parser("add-card")
-    a.add_argument("--board")
-    a.add_argument("--title", required=True)
-    a.add_argument("--desc")
-    a.add_argument("--due")
+    a.add_argument("--board"); a.add_argument("--title", required=True)
+    a.add_argument("--epic"); a.add_argument("--desc"); a.add_argument("--due")
     a.set_defaults(func=cmd_add_card)
 
     m = sub.add_parser("move-card")
-    m.add_argument("--board")
-    m.add_argument("--id", required=True)
+    m.add_argument("--board"); m.add_argument("--id", required=True)
     m.add_argument("--to", required=True)
     m.set_defaults(func=cmd_move_card)
 
+    se = sub.add_parser("set-epic")
+    se.add_argument("--board"); se.add_argument("--id", required=True)
+    se.add_argument("--epic", required=True)
+    se.set_defaults(func=cmd_set_epic)
+
+    al = sub.add_parser("add-link")
+    al.add_argument("--board"); al.add_argument("--id", required=True)
+    al.add_argument("--label", required=True); al.add_argument("--url", required=True)
+    al.set_defaults(func=cmd_add_link)
+
+    ai = sub.add_parser("add-image")
+    ai.add_argument("--board"); ai.add_argument("--id", required=True)
+    ai.add_argument("--path", required=True); ai.add_argument("--label")
+    ai.set_defaults(func=cmd_add_image)
+
     s = sub.add_parser("set-pref")
-    s.add_argument("--board")
-    s.add_argument("--key", required=True)
+    s.add_argument("--board"); s.add_argument("--key", required=True)
     s.add_argument("--value", required=True)
     s.set_defaults(func=cmd_set_pref)
 
     l = sub.add_parser("list")
     l.add_argument("--board")
     l.set_defaults(func=cmd_list)
+
+    sh = sub.add_parser("show")
+    sh.add_argument("--board"); sh.add_argument("--id", required=True)
+    sh.set_defaults(func=cmd_show)
 
     u = sub.add_parser("url")
     u.add_argument("--board")
@@ -371,4 +528,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# end

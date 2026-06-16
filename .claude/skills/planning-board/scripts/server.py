@@ -27,7 +27,13 @@ WEB_DIR = os.path.join(SKILL_DIR, "web")
 BOARDS_DIR = os.environ.get("PLANNING_BOARD_DIR") or os.path.join(
     os.getcwd(), ".claude", "boards"
 )
+ATTACH_DIR = os.path.join(BOARDS_DIR, "attachments")
 RUNTIME_PATH = os.path.join(BOARDS_DIR, ".runtime.json")
+
+MIME = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+}
 
 
 def snapshot():
@@ -92,6 +98,17 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     self._send(200, f.read(), "application/json")
             else:
                 self._send(404, b"{}", "application/json")
+            return
+
+        if path.startswith("/attachments/"):
+            fn = os.path.basename(path)
+            fp = os.path.join(ATTACH_DIR, fn)
+            if os.path.exists(fp) and os.path.isfile(fp):
+                ext = os.path.splitext(fn)[1].lower()
+                with open(fp, "rb") as f:
+                    self._send(200, f.read(), MIME.get(ext, "application/octet-stream"))
+            else:
+                self._send(404, b"not found", "text/plain")
             return
 
         if path == "/events":
